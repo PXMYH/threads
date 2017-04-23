@@ -15,44 +15,35 @@
 // shared buffer - integer                                               DONE
 // get external data - fixed size                                        DONE
 // process data - fixed size                                             DONE
-// get external data - various size (pointer + malloc)
+// get external data - various size (pointer + calloc)
 // process data - various size
 // add more information to data packet structure for better tracking
 // thread synchronization optimization
 // message queue for passing data
 
 
-
 //TODO Define global data structures to be used
 pthread_rwlock_t rw_lock_mutex;
 pthread_mutex_t data_generator_mutex = PTHREAD_MUTEX_INITIALIZER;
-
-
-//# define pkt_size 8 // stick with 8! changed to 10 and writer starts hogging CPU
-//struct MSG_BUF {
-//	char data_pkt[pkt_size];
-//} message_buffer;
 
 struct MSG_BUF {
 	char *data_pkt;
 	unsigned int buf_size;
 } message_buffer;
 
-#define buffer_size 8
-char shared_buffer[buffer_size];
 /*
  * function: data_pkt_generator
  * generate fixed size data packet
  * return size of generated packet in Byte
  * */
-int data_pkt_generator (char* data, int bufferSizeInBytes) {
+int data_pkt_generator (char* data, unsigned int buffer_size_in_bytes) {
 	time_t timeofday;
 	srand((unsigned) time(&timeofday));
 
-	for (int i = 0; i < bufferSizeInBytes; i++) {
+	for (unsigned int i = 0; i < buffer_size_in_bytes; i++) {
 		data[i] = (char) rand () % 256; // generate 1 byte random number
 	}
-	return 1;
+	return buffer_size_in_bytes;
 }
 
 int get_external_data(char *buffer, int bufferSizeInBytes) {
@@ -91,7 +82,7 @@ int process_data(char *buffer, int bufferSizeInBytes) {
 
 	printf("Pseudo process reading data\n");
 	for (int i = 0; i < bufferSizeInBytes; i++) {
-		printf("[%s][line:%d][%s]: buffer[%d]=%d\n", __FILE__, __LINE__, __func__, i, shared_buffer[i]);
+		printf("[%s][line:%d][%s]: buffer[%d]=%d\n", __FILE__, __LINE__, __func__, i, buffer[i]);
 	}
 
 	return EXIT_SUCCESS;
@@ -137,11 +128,7 @@ void *reader_thread(void *arg) {
 		printf("Obtained lock, reader {tid=%d} starts reading operations\n", thread_id);
 
 		//TODO: Define data extraction (queue) and processing
-//		for (int i = 0; i< pkt_size; i++) {
-//			printf("reader_thread {tid=%d} buffer[%d] = %d\n",thread_id, i, message_buffer.data_pkt[i]);
-//		}
-
-		process_data(shared_buffer, buffer_size);
+		process_data(message_buffer.data_pkt, message_buffer.buf_size);
 
 		// unlock reader/writer lock
 		printf("Reader {tid=%d} is done, releasing rw lock\n", thread_id);
@@ -161,6 +148,7 @@ void *reader_thread(void *arg) {
 void *writer_thread(void *arg) {
 	//TODO: Define set-up required
 	time_t timeofday;
+	unsigned int bytes_written;
 
 	pthread_t thread_id = pthread_self();
 	/* Initialize random number generator */
@@ -178,21 +166,14 @@ void *writer_thread(void *arg) {
 			printf ("!!!!! failed to obtain read/write lock for writer %d\n", thread_id);
 		}
 
-		/* write data operations */
-		printf("Obtained lock, writer {tid=%d} starts writing operations\n", thread_id);
-
-
 		//TODO: Define data extraction (device) and storage
-		get_external_data(shared_buffer, buffer_size);
 
-		// data storage
-//		int buffer_idx;
-//		for (buffer_idx = 0; buffer_idx < pkt_size; buffer_idx++) {
-//			message_buffer.data_pkt[buffer_idx] = rand();
-//			printf("writing in progress: writer_thread {%d} buffer[%d] = %d\n",thread_id, buffer_idx, message_buffer.data_pkt[buffer_idx]);
-//		}
+		printf("Obtained lock, writer {tid=%d} starts writing operations\n", thread_id);
+		/* data storage */
+		bytes_written = get_external_data(message_buffer.data_pkt, message_buffer.buf_size);
+		printf("structure bytes_written=%d\n", bytes_written);
 
-		// unlock reader/writer lock
+		/* unlock reader/writer lock */
 		printf("Writer {tid=%d} is done, releasing rw lock\n", thread_id);
 		pthread_rwlock_unlock(&rw_lock_mutex);
 		usleep(1);
@@ -220,6 +201,11 @@ int main(int argc, char **argv) {
 	int lock_status = pthread_rwlock_init (&rw_lock_mutex, NULL);
 	printf("initiate lock status = %d\n", lock_status);
 
+	/* initialize and allocate shared buffer */
+//	message_buffer.buf_size = 1024;  // 1M buffer
+	message_buffer.buf_size = 16;  // 16B buffer
+	message_buffer.data_pkt = (char*) calloc(message_buffer.buf_size, sizeof(char));
+
 	/* create reader threads */
 	for(i = 0; i < N; i++) {
 		ret = pthread_create(&rd_thread_tid[i], NULL, reader_thread, NULL);
@@ -239,8 +225,6 @@ int main(int argc, char **argv) {
 		}
 		printf("***** successfully created writer thread tid=%d\n", wr_thread_tid[i]);
 	}
-
-
 
 	/* wait until all threads complete */
 	for (i = 0; i < N; i ++) {

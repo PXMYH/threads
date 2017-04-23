@@ -19,7 +19,7 @@ and data management operations required when filling a processing pipeline with 
 coming from hardware and passing through to various processing stages.
 
 Assume the following:
-- There will be N writers and M readers of the data.  The thread creation is specified
+- There will be N writers and M readers of the data. The thread creation is specified
   in the starter code, but feel free to adjust it to suit your needs.
 
 - Make Believe API's for data manipulation:

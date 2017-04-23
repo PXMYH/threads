@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <string.h>
 #include <sys/time.h>
+#include <unistd.h>
 
 //TODO Define global data structures to be used
 // TODO: MH use unsigned integers
@@ -16,7 +17,7 @@
 pthread_rwlock_t rw_lock_mutex;
 unsigned int counter;
 
-# define packet_size 64
+# define packet_size 2
 struct MSG_BUF {
 	int packet_content[packet_size];
 } message_buffer;
@@ -45,31 +46,32 @@ void sig_handler(int signum) {
 void *reader_thread(void *arg) {
 	//TODO: Define set-up required
 	unsigned int run_cnt = 0;
-	struct timeval ts;
 
 	pthread_t thread_id = pthread_self();
-
-	/* obtain read/write lock for reader to lock out other writers */
-	int try_read_lock_status = pthread_rwlock_tryrdlock(&rw_lock_mutex);
-	printf("try_read_lock_status=%d\n",try_read_lock_status);
-	if (!try_read_lock_status) {
-		printf ("successfully obtained read/write lock for reader\n");
-	}
-	else {
-		printf ("failed to obtain read/write lock for reader\n");
-	}
-
-
-	printf("Reading Operations\n");
 	while(1) {
+
+		/* obtain read/write lock for reader to lock out other writers */
+		int try_read_lock_status = pthread_rwlock_tryrdlock(&rw_lock_mutex);
+		printf("try_read_lock_status=%d\n",try_read_lock_status);
+		if (!try_read_lock_status) {
+			printf ("***** successfully obtained read/write lock for reader tid=%d\n", thread_id);
+		}
+		else {
+			printf ("***** failed to obtain read/write lock for reader %d\n", thread_id);
+		}
+
+		printf("Obtained lock, reader {tid=%d} starts reading operations\n", thread_id);
+
 		//TODO: Define data extraction (queue) and processing
-        gettimeofday(&ts, NULL);
-        printf("%06lu.%06lu: --- reader_thread %d run_cnt = %d\n",\
-                                           (unsigned int)ts.tv_sec,\
-                                           (unsigned int)ts.tv_usec,\
-										   thread_id, run_cnt);
-        run_cnt += 1;
-//		printf("currently message buffer content: %d\n", message_buffer.packet_content);
+		for (int i = 0; i< packet_size; i++) {
+			printf("reader_thread {tid=%d} buffer[%d] = %d\n",thread_id, i, message_buffer.packet_content[i]);
+		}
+		run_cnt++;
+
+		// unlock reader/writer lock
+		printf("Reader {tid=%d} is done, releasing rw lock\n", thread_id);
+		pthread_rwlock_unlock(&rw_lock_mutex);
+		usleep(1);
 	}
 
 	return NULL;
@@ -90,45 +92,57 @@ void *reader_thread(void *arg) {
 void *writer_thread(void *arg) {
 	//TODO: Define set-up required
 	unsigned int run_cnt = 0;
-	struct timeval ts;
+	time_t timeofday;
 
 	pthread_t thread_id = pthread_self();
+	/* Initialize random number generator */
+	srand((unsigned) time(&timeofday));
 
-	/* obtain read/write lock to lock out other writers as well as readers */
-	int try_write_lock_status = pthread_rwlock_trywrlock(&rw_lock_mutex);
-	printf("try_write_lock_status=%d\n",try_write_lock_status);
-	if (!try_write_lock_status) {
-		printf ("successfully obtained read/write lock for writer\n");
-	}
-	else {
-		printf ("failed to obtain read/write lock for writer\n");
-	}
-
-
-	/* write data operations */
-	printf("Writing Operations\n");
 	while(1) {
+
+		/* obtain read/write lock to lock out other writers as well as readers */
+		int write_lock_status = pthread_rwlock_wrlock(&rw_lock_mutex);
+		printf("try_write_lock_status=%d\n",write_lock_status);
+		if (!write_lock_status) {
+			printf ("***** successfully obtained read/write lock for writer tid=%d\n", thread_id);
+		}
+		else {
+			printf ("***** failed to obtain read/write lock for writer %d\n", thread_id);
+		}
+
+		/* write data operations */
+		printf("Obtained lock, writer {tid=%d} starts writing operations\n", thread_id);
+
+
 		//TODO: Define data extraction (device) and storage
 
 		// data storage
-        gettimeofday(&ts, NULL);
-        printf("%06lu.%06lu: --- XXXXXX --- writer_thread %d run_cnt = %d --- XXXXXX ---\n",\
-                                           (unsigned int)ts.tv_sec,\
-                                           (unsigned int)ts.tv_usec,\
-										   thread_id, run_cnt);
-        run_cnt ++;
-//		message_buffer.packet_content = d;
+		int buffer_idx;
+		for (buffer_idx = 0; buffer_idx < packet_size; buffer_idx++) {
+			message_buffer.packet_content[buffer_idx] = rand();
+			printf("writing in progress: writer_thread {%d} buffer[%d] = %d\n",thread_id, buffer_idx, message_buffer.packet_content[buffer_idx]);
+		}
+		run_cnt ++;
+
+		// unlock reader/writer lock
+		printf("Writer {tid=%d} is done, releasing rw lock\n", thread_id);
+		pthread_rwlock_unlock(&rw_lock_mutex);
+		usleep(1);
 	}
 
 	return NULL;
 }
 
+// original requirement
+//#define M 10
+//#define N 20
 
-#define M 10
-#define N 20
+#define M 2 // writer
+#define N 3 // reader
 int main(int argc, char **argv) {
 	unsigned int i;
-	pthread_t thread_tid[N+M];
+	pthread_t wr_thread_tid[M];
+	pthread_t rd_thread_tid[N];
 
 	counter = 0;
 
@@ -138,27 +152,29 @@ int main(int argc, char **argv) {
 	int lock_status = pthread_rwlock_init (&rw_lock_mutex, NULL);
 	printf("initiate lock status = %d\n", lock_status);
 
-
-
 	/* create reader threads */
 	for(i = 0; i < N; i++) {
-		pthread_create(&thread_tid[i], NULL, reader_thread, NULL);
-		printf("tid of Reader %d = %d\n", i+1, thread_tid[i]);
+		pthread_create(&rd_thread_tid[i], NULL, reader_thread, NULL);
+		printf("tid of Reader %d = %d\n", i+1, rd_thread_tid[i]);
 	}
 
 	/* create writer threads */
 	for(i = 0; i < M; i++) {
-		pthread_create(&thread_tid[N+i], NULL, writer_thread, NULL);
-		printf("tid of Writer %d = %d\n", i+1, thread_tid[N+i]);
+		pthread_create(&wr_thread_tid[N+i], NULL, writer_thread, NULL);
+		printf("tid of Writer %d = %d\n", i+1, wr_thread_tid[N+i]);
 	}
+
+
 
 	/* wait until all threads complete */
-	for (i = 0; i < M+N; i ++) {
-		pthread_join(thread_tid[i], NULL);
+	for (i = 0; i < N; i ++) {
+		pthread_join(rd_thread_tid[i], NULL);
+	}
+	for (i = 0; i < M; i ++) {
+		pthread_join(wr_thread_tid[i], NULL);
 	}
 
-	/* release read/write lock */
-	pthread_rwlock_unlock (&rw_lock_mutex);
+	pthread_rwlock_destroy(&rw_lock_mutex);
 
 	return 0;
 }

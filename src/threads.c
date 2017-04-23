@@ -6,10 +6,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <string.h>
-#include <sys/types.h> /* standard system data types.       */
-#include <sys/ipc.h>   /* common system V IPC structures.   */
-#include <sys/msg.h>   /* message-queue specific functions. */
-
+#include <sys/time.h>
 
 //TODO Define global data structures to be used
 // TODO: MH use unsigned integers
@@ -17,9 +14,13 @@
 //int number_of_readers = 0;
 
 pthread_rwlock_t rw_lock_mutex;
-
-
 unsigned int counter;
+
+# define packet_size 64
+struct MSG_BUF {
+	int packet_content[packet_size];
+} message_buffer;
+
 
 /* handle system signal such as Ctrl + C */
 void sig_handler(int signum) {
@@ -28,7 +29,7 @@ void sig_handler(int signum) {
         assert(signum == SIGINT);
     }
 
-    printf("Received SIGINT. Exiting Application\n");
+    printf("Received SIGINT %d. Exiting Application\n", signum);
 
 //    pthread_cancel(thread1);
 //    pthread_cancel(thread2);
@@ -43,6 +44,10 @@ void sig_handler(int signum) {
  */
 void *reader_thread(void *arg) {
 	//TODO: Define set-up required
+	unsigned int run_cnt = 0;
+	struct timeval ts;
+
+	pthread_t thread_id = pthread_self();
 
 	/* obtain read/write lock for reader to lock out other writers */
 	int try_read_lock_status = pthread_rwlock_tryrdlock(&rw_lock_mutex);
@@ -56,9 +61,16 @@ void *reader_thread(void *arg) {
 
 
 	printf("Reading Operations\n");
-//	while(1) {
-//		//TODO: Define data extraction (queue) and processing
-//	}
+	while(1) {
+		//TODO: Define data extraction (queue) and processing
+        gettimeofday(&ts, NULL);
+        printf("%06lu.%06lu: --- reader_thread %d run_cnt = %d\n",\
+                                           (unsigned int)ts.tv_sec,\
+                                           (unsigned int)ts.tv_usec,\
+										   thread_id, run_cnt);
+        run_cnt += 1;
+//		printf("currently message buffer content: %d\n", message_buffer.packet_content);
+	}
 
 	return NULL;
 }
@@ -77,6 +89,10 @@ void *reader_thread(void *arg) {
  */
 void *writer_thread(void *arg) {
 	//TODO: Define set-up required
+	unsigned int run_cnt = 0;
+	struct timeval ts;
+
+	pthread_t thread_id = pthread_self();
 
 	/* obtain read/write lock to lock out other writers as well as readers */
 	int try_write_lock_status = pthread_rwlock_trywrlock(&rw_lock_mutex);
@@ -91,9 +107,18 @@ void *writer_thread(void *arg) {
 
 	/* write data operations */
 	printf("Writing Operations\n");
-//	while(1) {
-//		//TODO: Define data extraction (device) and storage
-//	}
+	while(1) {
+		//TODO: Define data extraction (device) and storage
+
+		// data storage
+        gettimeofday(&ts, NULL);
+        printf("%06lu.%06lu: --- XXXXXX --- writer_thread %d run_cnt = %d --- XXXXXX ---\n",\
+                                           (unsigned int)ts.tv_sec,\
+                                           (unsigned int)ts.tv_usec,\
+										   thread_id, run_cnt);
+        run_cnt ++;
+//		message_buffer.packet_content = d;
+	}
 
 	return NULL;
 }
@@ -107,17 +132,12 @@ int main(int argc, char **argv) {
 
 	counter = 0;
 
+	signal(SIGINT, sig_handler);
+
 	/* initialize read/write lock */
 	int lock_status = pthread_rwlock_init (&rw_lock_mutex, NULL);
 	printf("initiate lock status = %d\n", lock_status);
 
-	/* initialize message queue */
-	int queue_id = msgget(IPC_PRIVATE, 0755); /* read/write access for other threads */
-	printf("created msg queue id = %d\n", queue_id);
-	if (queue_id == -1) {
-		perror("msgget");
-		exit(1);
-	}
 
 
 	/* create reader threads */

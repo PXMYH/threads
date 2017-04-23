@@ -11,10 +11,10 @@
 #include "threads.h"
 
 // steps:
-// thread synchronization     DONE
-// shared buffer - integer    DONE
-// get external data - fixed size    DONE
-// process data - fixed size
+// thread synchronization                                                DONE
+// shared buffer - integer                                               DONE
+// get external data - fixed size                                        DONE
+// process data - fixed size                                             DONE
 // get external data - various size (pointer + malloc)
 // process data - various size
 // add more information to data packet structure for better tracking
@@ -25,12 +25,17 @@
 
 //TODO Define global data structures to be used
 pthread_rwlock_t rw_lock_mutex;
-pthread_mutex_t dta_generator_mutex;
+pthread_mutex_t data_generator_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 
-# define pkt_size 8 // stick with 8! changed to 10 and writer starts hogging CPU
+//# define pkt_size 8 // stick with 8! changed to 10 and writer starts hogging CPU
+//struct MSG_BUF {
+//	char data_pkt[pkt_size];
+//} message_buffer;
+
 struct MSG_BUF {
-	char data_pkt[pkt_size];
+	char *data_pkt;
+	unsigned int buf_size;
 } message_buffer;
 
 #define buffer_size 8
@@ -61,11 +66,14 @@ int get_external_data(char *buffer, int bufferSizeInBytes) {
 		return -1;
 	}
 
+	pthread_mutex_init(&data_generator_mutex, NULL);
+	pthread_mutex_lock(&data_generator_mutex);
+
 	int bytes_written;
 	bytes_written = data_pkt_generator(buffer, bufferSizeInBytes);
-//	for (int i = 0; i < bufferSizeInBytes; i++) {
-//		printf("[%s][%d][%s]: buffer[%d]=%d\n", __FILE__, __LINE__, __func__, i, buffer[i]);
-//	}
+
+	pthread_mutex_unlock(&data_generator_mutex);
+	pthread_mutex_destroy(&data_generator_mutex);
 
 	return bytes_written;
 }
@@ -83,7 +91,7 @@ int process_data(char *buffer, int bufferSizeInBytes) {
 
 	printf("Pseudo process reading data\n");
 	for (int i = 0; i < bufferSizeInBytes; i++) {
-		printf("[%s][%d][%s]: buffer[%d]=%d\n", __FILE__, __LINE__, __func__, i, shared_buffer[i]);
+		printf("[%s][line:%d][%s]: buffer[%d]=%d\n", __FILE__, __LINE__, __func__, i, shared_buffer[i]);
 	}
 
 	return EXIT_SUCCESS;
@@ -123,7 +131,7 @@ void *reader_thread(void *arg) {
 			printf ("***** successfully obtained read/write lock for reader tid=%d\n", thread_id);
 		}
 		else {
-			printf ("***** failed to obtain read/write lock for reader %d\n", thread_id);
+			printf ("!!!!! failed to obtain read/write lock for reader %d\n", thread_id);
 		}
 
 		printf("Obtained lock, reader {tid=%d} starts reading operations\n", thread_id);
@@ -167,7 +175,7 @@ void *writer_thread(void *arg) {
 			printf ("***** successfully obtained read/write lock for writer tid=%d\n", thread_id);
 		}
 		else {
-			printf ("***** failed to obtain read/write lock for writer %d\n", thread_id);
+			printf ("!!!!! failed to obtain read/write lock for writer %d\n", thread_id);
 		}
 
 		/* write data operations */
@@ -201,6 +209,8 @@ void *writer_thread(void *arg) {
 #define N 3 // reader
 int main(int argc, char **argv) {
 	unsigned int i;
+	int ret;
+
 	pthread_t wr_thread_tid[M];
 	pthread_t rd_thread_tid[N];
 
@@ -212,14 +222,22 @@ int main(int argc, char **argv) {
 
 	/* create reader threads */
 	for(i = 0; i < N; i++) {
-		pthread_create(&rd_thread_tid[i], NULL, reader_thread, NULL);
-		printf("tid of Reader %d = %d\n", i+1, rd_thread_tid[i]);
+		ret = pthread_create(&rd_thread_tid[i], NULL, reader_thread, NULL);
+		if(ret) {
+			printf("!!!!! Failed to create reader thread tid=%d\n", rd_thread_tid[i]);
+			return EXIT_FAILURE;
+		}
+		printf("***** successfully created reader thread tid=%d\n", rd_thread_tid[i]);
 	}
 
 	/* create writer threads */
 	for(i = 0; i < M; i++) {
-		pthread_create(&wr_thread_tid[N+i], NULL, writer_thread, NULL);
-		printf("tid of Writer %d = %d\n", i+1, wr_thread_tid[N+i]);
+		ret = pthread_create(&wr_thread_tid[i], NULL, writer_thread, NULL);
+		if(ret) {
+			printf("!!!!! Failed to create writer thread tid=%d\n", wr_thread_tid[i]);
+			return EXIT_FAILURE;
+		}
+		printf("***** successfully created writer thread tid=%d\n", wr_thread_tid[i]);
 	}
 
 
@@ -234,5 +252,5 @@ int main(int argc, char **argv) {
 
 	pthread_rwlock_destroy(&rw_lock_mutex);
 
-	return 0;
+	return EXIT_SUCCESS;
 }

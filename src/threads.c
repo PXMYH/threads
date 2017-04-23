@@ -3,11 +3,13 @@
 #include <pthread.h>
 #include <sched.h>
 #include <semaphore.h>
-#include <mqueue.h>
-#include <fcntl.h>
 #include <assert.h>
 #include <errno.h>
 #include <string.h>
+#include <sys/types.h> /* standard system data types.       */
+#include <sys/ipc.h>   /* common system V IPC structures.   */
+#include <sys/msg.h>   /* message-queue specific functions. */
+
 
 //TODO Define global data structures to be used
 // TODO: MH use unsigned integers
@@ -16,8 +18,6 @@
 
 pthread_rwlock_t rw_lock_mutex;
 
-mqd_t message_queue_descriptor;
-#define MY_MQ_NAME "/default_message_queue"
 
 unsigned int counter;
 
@@ -56,13 +56,6 @@ void *reader_thread(void *arg) {
 
 
 	printf("Reading Operations\n");
-	int status;
-	int recv_counter;
-	status = mq_receive(message_queue_descriptor, (char*)&recv_counter, sizeof(recv_counter), NULL);
-	if (status > 0) {
-		printf("RECVd MSG in reader_thread: %d\n", recv_counter);
-		counter++;
-	}
 //	while(1) {
 //		//TODO: Define data extraction (queue) and processing
 //	}
@@ -98,9 +91,6 @@ void *writer_thread(void *arg) {
 
 	/* write data operations */
 	printf("Writing Operations\n");
-	int status;
-	status = mq_send(message_queue_descriptor, (const char*)&counter, sizeof(counter), 1);
-	assert(status != -1);
 //	while(1) {
 //		//TODO: Define data extraction (device) and storage
 //	}
@@ -122,34 +112,33 @@ int main(int argc, char **argv) {
 	printf("initiate lock status = %d\n", lock_status);
 
 	/* initialize message queue */
-	// TODO: MH change message queue attributes
-	message_queue_descriptor = mq_open(MY_MQ_NAME, O_RDWR | O_CREAT | O_NONBLOCK, 0755, NULL);
-	if (message_queue_descriptor == -1) {
-		printf("creating message queue status code: %d, errno=%s\n", message_queue_descriptor, strerror(errno));
-		perror("mq_open");
-		exit(EXIT_FAILURE);
-	} else {
-
-		/* create reader threads */
-		for(i = 0; i < N; i++) {
-			pthread_create(&thread_tid[i], NULL, reader_thread, NULL);
-			printf("tid of Reader %d = %d\n", i+1, thread_tid[i]);
-		}
-
-		/* create writer threads */
-		for(i = 0; i < M; i++) {
-			pthread_create(&thread_tid[N+i], NULL, writer_thread, NULL);
-			printf("tid of Writer %d = %d\n", i+1, thread_tid[N+i]);
-		}
-
-		/* wait until all threads complete */
-		for (i = 0; i < M+N; i ++) {
-			pthread_join(thread_tid[i], NULL);
-		}
-
-		/* release read/write lock */
-		pthread_rwlock_unlock (&rw_lock_mutex);
+	int queue_id = msgget(IPC_PRIVATE, 0755); /* read/write access for other threads */
+	printf("created msg queue id = %d\n", queue_id);
+	if (queue_id == -1) {
+		perror("msgget");
+		exit(1);
 	}
+
+
+	/* create reader threads */
+	for(i = 0; i < N; i++) {
+		pthread_create(&thread_tid[i], NULL, reader_thread, NULL);
+		printf("tid of Reader %d = %d\n", i+1, thread_tid[i]);
+	}
+
+	/* create writer threads */
+	for(i = 0; i < M; i++) {
+		pthread_create(&thread_tid[N+i], NULL, writer_thread, NULL);
+		printf("tid of Writer %d = %d\n", i+1, thread_tid[N+i]);
+	}
+
+	/* wait until all threads complete */
+	for (i = 0; i < M+N; i ++) {
+		pthread_join(thread_tid[i], NULL);
+	}
+
+	/* release read/write lock */
+	pthread_rwlock_unlock (&rw_lock_mutex);
 
 	return 0;
 }

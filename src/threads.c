@@ -17,7 +17,7 @@
 // process data - fixed size                                             DONE
 // get external data - various size (pointer + calloc)
 // process data - various size
-// add more information to data packet structure for better tracking
+// add more information to data packet structure for better tracking     DONE
 // thread synchronization optimization
 // message queue for passing data
 
@@ -26,9 +26,11 @@
 pthread_rwlock_t rw_lock_mutex;
 pthread_mutex_t data_generator_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+#define TIMESTAMP_LEN 40
 struct MSG_BUF {
 	char *data_pkt;
 	unsigned int buf_size;
+	char last_update_timestamp[TIMESTAMP_LEN];
 } message_buffer;
 
 /*
@@ -80,9 +82,10 @@ int process_data(char *buffer, int bufferSizeInBytes) {
 		return -1;
 	}
 
-	printf("Pseudo process reading data\n");
+	pthread_t thread_id = pthread_self();
+	printf("Pseudo process reading data thread tid=%d\n", thread_id);
 	for (int i = 0; i < bufferSizeInBytes; i++) {
-		printf("[%s][line:%d][%s]: buffer[%d]=%d\n", __FILE__, __LINE__, __func__, i, buffer[i]);
+		printf("[%s][line:%d][%s]: tid=%d buffer[%d]=%d\n", __FILE__, __LINE__, __func__, thread_id, i, buffer[i]);
 	}
 
 	return EXIT_SUCCESS;
@@ -172,6 +175,9 @@ void *writer_thread(void *arg) {
 		/* data storage */
 		bytes_written = get_external_data(message_buffer.data_pkt, message_buffer.buf_size);
 		printf("structure bytes_written=%d\n", bytes_written);
+
+		/* update timestamp */
+		strncpy(message_buffer.last_update_timestamp, asctime(localtime (&timeofday)), TIMESTAMP_LEN);
 
 		/* unlock reader/writer lock */
 		printf("Writer {tid=%d} is done, releasing rw lock\n", thread_id);

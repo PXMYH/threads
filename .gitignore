@@ -51,4 +51,7 @@ Module.symvers
 Mkfile.old
 dkms.confelias pip="/usr/local/bin/pip"
 
+build/*
+build/**
 **/build/**
+build/x86_64-debug/src/*

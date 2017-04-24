@@ -38,6 +38,7 @@ int data_pkt_generator (char* data, unsigned int buffer_size_in_bytes) {
 
 	for (unsigned int i = 0; i < buffer_size_in_bytes; i++) {
 		data[i] = (char) rand () % 256; // generate 1 byte random number
+		printf("[%s][line:%d][%s]: buffer[%d]=%d\n", __FILE__, __LINE__, __func__, i, data[i]);
 	}
 	return buffer_size_in_bytes;
 }

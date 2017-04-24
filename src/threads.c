@@ -31,13 +31,13 @@
 // Testing
 //#define M 2 // writer
 //#define N 3 // reader
-
 #define DEBUG_MODE
 
 pthread_t wr_thread_tid[M];
 pthread_t rd_thread_tid[N];
 
 #define TIMESTAMP_LEN 40
+#define BUFFER_SIZE 16 // e.g change to 1024 for 1KB data stream
 struct MSG_BUF {
 	char *data_pkt;
 	unsigned int buf_size;
@@ -122,11 +122,11 @@ void *reader_thread(void *arg) {
 	while(1) {
 
 		/* obtain read/write lock for reader to lock out other writers */
-		int try_read_lock_status = pthread_rwlock_tryrdlock(&rw_lock_mutex);
+		int read_lock_status = pthread_rwlock_rdlock(&rw_lock_mutex);
 #ifdef DEBUG_MODE
-		printf("reader {tid=%d} try_read_lock_status=%d\n",thread_id, try_read_lock_status);
+		printf("reader {tid=%d} read_lock_status=%d\n",thread_id, read_lock_status);
 
-		if (!try_read_lock_status) {
+		if (!read_lock_status) {
 			printf ("***** successfully obtained read/write lock for reader tid=%d\n", thread_id);
 		}
 		else {
@@ -216,8 +216,7 @@ int main(int argc, char **argv) {
 	printf("initiate lock status = %d\n", lock_status);
 
 	/* initialize and allocate shared buffer */
-//	message_buffer.buf_size = 1024;  // 1M buffer
-	message_buffer.buf_size = 16;  // 16B buffer
+	message_buffer.buf_size = BUFFER_SIZE;  // 16B buffer
 	message_buffer.data_pkt = (char*) calloc(message_buffer.buf_size, sizeof(char));
 
 	pthread_attr_init(&thread_attr);

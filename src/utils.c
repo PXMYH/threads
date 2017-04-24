@@ -26,3 +26,18 @@ int random_data_pkt_generator(char* data_pkt_buf, unsigned int * buffer_size_in_
 
 	return EXIT_SUCCESS;
 }
+
+/*
+ * function: data_pkt_generator
+ * generate fixed size data packet
+ * return size of generated packet in Byte
+ * */
+int data_pkt_generator (char* data, unsigned int buffer_size_in_bytes) {
+	time_t timeofday;
+	srand((unsigned) time(&timeofday));
+
+	for (unsigned int i = 0; i < buffer_size_in_bytes; i++) {
+		data[i] = (char) rand () % 256; // generate 1 byte random number
+	}
+	return buffer_size_in_bytes;
+}

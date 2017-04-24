@@ -2,29 +2,40 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <sched.h>
-#include <semaphore.h>
 #include <assert.h>
 #include <errno.h>
 #include <string.h>
 #include <sys/time.h>
 #include <unistd.h>
+#include <signal.h>
 #include "threads.h"
+#include "utils.h"
 
 // steps:
 // thread synchronization                                                DONE
 // shared buffer - integer                                               DONE
 // get external data - fixed size                                        DONE
 // process data - fixed size                                             DONE
-// get external data - various size (pointer + calloc)
-// process data - various size
+// get external data - various size (pointer + calloc)                   REQUIRE API PARAM CHANGE (buffer_size_in_bytes)
+// process data - various size                                           REQUIRE API PARAM CHANGE (buffer_size_in_bytes)
 // add more information to data packet structure for better tracking     DONE
-// thread synchronization optimization
+// thread synchronization optimization                                   DONE
 // message queue for passing data
 
 
-//TODO Define global data structures to be used
-pthread_rwlock_t rw_lock_mutex;
-pthread_mutex_t data_generator_mutex = PTHREAD_MUTEX_INITIALIZER;
+// Define global data structures to be used
+// original requirement
+#define M 10
+#define N 20
+
+// Testing
+//#define M 2 // writer
+//#define N 3 // reader
+
+#define DEBUG_MODE
+
+pthread_t wr_thread_tid[M];
+pthread_t rd_thread_tid[N];
 
 #define TIMESTAMP_LEN 40
 struct MSG_BUF {
@@ -33,22 +44,31 @@ struct MSG_BUF {
 	char last_update_timestamp[TIMESTAMP_LEN];
 } message_buffer;
 
-/*
- * function: data_pkt_generator
- * generate fixed size data packet
- * return size of generated packet in Byte
- * */
-int data_pkt_generator (char* data, unsigned int buffer_size_in_bytes) {
-	time_t timeofday;
-	srand((unsigned) time(&timeofday));
+pthread_rwlock_t rw_lock_mutex;
+pthread_mutex_t data_generator_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-	for (unsigned int i = 0; i < buffer_size_in_bytes; i++) {
-		data[i] = (char) rand () % 256; // generate 1 byte random number
+/* function: sig_handler
+ * handle system signal such as Ctrl + C
+ * */
+void sig_handler(int signum) {
+    if (signum != SIGINT) {
+        printf("Received invalid signum = %d in sig_handler()\n", signum);
+        assert(signum == SIGINT);
+    }
+
+    printf("Received SIGINT %d. Exiting Application\n", signum);
+
+	for (unsigned int i = 0; i < N; i ++) {
+		pthread_cancel(rd_thread_tid[i]);
 	}
-	return buffer_size_in_bytes;
+	for (unsigned i = 0; i < M; i ++) {
+		pthread_cancel(wr_thread_tid[i]);
+	}
+
+    exit(signum);
 }
 
-int get_external_data(char *buffer, int bufferSizeInBytes) {
+static int get_external_data(char *buffer, int bufferSizeInBytes) {
 	if (buffer == NULL) {
 		printf("ERR: Buffer is NULL!\n");
 		return -1;
@@ -71,7 +91,7 @@ int get_external_data(char *buffer, int bufferSizeInBytes) {
 	return bytes_written;
 }
 
-int process_data(char *buffer, int bufferSizeInBytes) {
+static int process_data(char *buffer, int bufferSizeInBytes) {
 	if (buffer == NULL) {
 		printf("ERR: Buffer is NULL!\n");
 		return -1;
@@ -83,7 +103,9 @@ int process_data(char *buffer, int bufferSizeInBytes) {
 	}
 
 	pthread_t thread_id = pthread_self();
+#ifdef DEBUG_MODE
 	printf("Pseudo process reading data thread tid=%d\n", thread_id);
+#endif
 	for (int i = 0; i < bufferSizeInBytes; i++) {
 		printf("[%s][line:%d][%s]: tid=%d buffer[%d]=%d\n", __FILE__, __LINE__, __func__, thread_id, i, buffer[i]);
 	}
@@ -91,36 +113,19 @@ int process_data(char *buffer, int bufferSizeInBytes) {
 	return EXIT_SUCCESS;
 }
 
-
-/* handle system signal such as Ctrl + C */
-void sig_handler(int signum) {
-    if (signum != SIGINT) {
-        printf("Received invalid signum = %d in sig_handler()\n", signum);
-        assert(signum == SIGINT);
-    }
-
-    printf("Received SIGINT %d. Exiting Application\n", signum);
-
-//    pthread_cancel(thread1);
-//    pthread_cancel(thread2);
-
-    exit(0);
-}
-
-
 /**
  * This thread is responsible for pulling data off of the shared data
  * area and processing it using the process_data() API.
  */
 void *reader_thread(void *arg) {
-	//TODO: Define set-up required
-
 	pthread_t thread_id = pthread_self();
 	while(1) {
 
 		/* obtain read/write lock for reader to lock out other writers */
 		int try_read_lock_status = pthread_rwlock_tryrdlock(&rw_lock_mutex);
+#ifdef DEBUG_MODE
 		printf("reader {tid=%d} try_read_lock_status=%d\n",thread_id, try_read_lock_status);
+
 		if (!try_read_lock_status) {
 			printf ("***** successfully obtained read/write lock for reader tid=%d\n", thread_id);
 		}
@@ -129,12 +134,13 @@ void *reader_thread(void *arg) {
 		}
 
 		printf("Obtained lock, reader {tid=%d} starts reading operations\n", thread_id);
-
-		//TODO: Define data extraction (queue) and processing
+#endif
 		process_data(message_buffer.data_pkt, message_buffer.buf_size);
 
-		// unlock reader/writer lock
+		/* unlock reader/writer lock */
+#ifdef DEBUG_MODE
 		printf("Reader {tid=%d} is done, releasing rw lock\n", thread_id);
+#endif
 		pthread_rwlock_unlock(&rw_lock_mutex);
 		usleep(1);
 	}
@@ -142,18 +148,17 @@ void *reader_thread(void *arg) {
 	return NULL;
 }
 
-
 /**
  * This thread is responsible for pulling data from a device using
  * the get_external_data() API and placing it into a shared area
  * for later processing by one of the reader threads.
  */
 void *writer_thread(void *arg) {
-	//TODO: Define set-up required
+	// Define set-up required
 	time_t timeofday;
 	unsigned int bytes_written;
-
 	pthread_t thread_id = pthread_self();
+
 	/* Initialize random number generator */
 	srand((unsigned) time(&timeofday));
 
@@ -161,6 +166,7 @@ void *writer_thread(void *arg) {
 
 		/* obtain read/write lock to lock out other writers as well as readers */
 		int write_lock_status = pthread_rwlock_wrlock(&rw_lock_mutex);
+#ifdef DEBUG_MODE
 		printf("writer {tid=%d} write_lock_status=%d\n",thread_id, write_lock_status);
 		if (!write_lock_status) {
 			printf ("***** successfully obtained read/write lock for writer tid=%d\n", thread_id);
@@ -169,18 +175,23 @@ void *writer_thread(void *arg) {
 			printf ("!!!!! failed to obtain read/write lock for writer %d\n", thread_id);
 		}
 
-		//TODO: Define data extraction (device) and storage
+		// Define data extraction (device) and storage
 
 		printf("Obtained lock, writer {tid=%d} starts writing operations\n", thread_id);
+#endif
 		/* data storage */
 		bytes_written = get_external_data(message_buffer.data_pkt, message_buffer.buf_size);
-		printf("structure bytes_written=%d\n", bytes_written);
+#ifdef DEBUG_MODE
+		printf("bytes_written=%d\n", bytes_written);
+#endif
 
 		/* update timestamp */
 		strncpy(message_buffer.last_update_timestamp, asctime(localtime (&timeofday)), TIMESTAMP_LEN);
 
 		/* unlock reader/writer lock */
+#ifdef DEBUG_MODE
 		printf("Writer {tid=%d} is done, releasing rw lock\n", thread_id);
+#endif
 		pthread_rwlock_unlock(&rw_lock_mutex);
 		usleep(1);
 	}
@@ -188,23 +199,20 @@ void *writer_thread(void *arg) {
 	return NULL;
 }
 
-// original requirement
-//#define M 10
-//#define N 20
-
-#define M 2 // writer
-#define N 3 // reader
 int main(int argc, char **argv) {
 	unsigned int i;
 	int ret;
 
-	pthread_t wr_thread_tid[M];
-	pthread_t rd_thread_tid[N];
+	pthread_rwlockattr_t rwlock_attr;
+	pthread_attr_t thread_attr;
 
 	signal(SIGINT, sig_handler);
 
-	/* initialize read/write lock */
-	int lock_status = pthread_rwlock_init (&rw_lock_mutex, NULL);
+	/* initialize read/write lock with private mode and monotonic clock */
+	pthread_rwlockattr_init(&rwlock_attr);
+	pthread_rwlockattr_setpshared(&rwlock_attr, PTHREAD_PROCESS_PRIVATE);
+	pthread_rwlockattr_setclock(&rwlock_attr, CLOCK_MONOTONIC);
+	int lock_status = pthread_rwlock_init (&rw_lock_mutex, &rwlock_attr);
 	printf("initiate lock status = %d\n", lock_status);
 
 	/* initialize and allocate shared buffer */
@@ -212,9 +220,11 @@ int main(int argc, char **argv) {
 	message_buffer.buf_size = 16;  // 16B buffer
 	message_buffer.data_pkt = (char*) calloc(message_buffer.buf_size, sizeof(char));
 
+	pthread_attr_init(&thread_attr);
+
 	/* create reader threads */
 	for(i = 0; i < N; i++) {
-		ret = pthread_create(&rd_thread_tid[i], NULL, reader_thread, NULL);
+		ret = pthread_create(&rd_thread_tid[i], &thread_attr, reader_thread, NULL);
 		if(ret) {
 			printf("!!!!! Failed to create reader thread tid=%d\n", rd_thread_tid[i]);
 			return EXIT_FAILURE;
@@ -224,7 +234,7 @@ int main(int argc, char **argv) {
 
 	/* create writer threads */
 	for(i = 0; i < M; i++) {
-		ret = pthread_create(&wr_thread_tid[i], NULL, writer_thread, NULL);
+		ret = pthread_create(&wr_thread_tid[i], &thread_attr, writer_thread, NULL);
 		if(ret) {
 			printf("!!!!! Failed to create writer thread tid=%d\n", wr_thread_tid[i]);
 			return EXIT_FAILURE;
@@ -241,6 +251,8 @@ int main(int argc, char **argv) {
 	}
 
 	pthread_rwlock_destroy(&rw_lock_mutex);
+
+	sig_handler(SIGINT);
 
 	return EXIT_SUCCESS;
 }

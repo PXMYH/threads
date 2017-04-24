@@ -5,22 +5,11 @@
 #include <assert.h>
 #include <errno.h>
 #include <string.h>
-#include <sys/time.h>
+#include <time.h>
 #include <unistd.h>
 #include <signal.h>
 #include "threads.h"
 #include "utils.h"
-
-// steps:
-// thread synchronization                                                DONE
-// shared buffer - integer                                               DONE
-// get external data - fixed size                                        DONE
-// process data - fixed size                                             DONE
-// get external data - various size (pointer + calloc)                   REQUIRE API PARAM CHANGE (buffer_size_in_bytes)
-// process data - various size                                           REQUIRE API PARAM CHANGE (buffer_size_in_bytes)
-// add more information to data packet structure for better tracking     DONE
-// thread synchronization optimization                                   DONE
-// message queue for passing data
 
 
 // Define global data structures to be used
@@ -32,8 +21,6 @@
 //#define M 2 // writer
 //#define N 3 // reader
 #define DEBUG_MODE
-
-#define SMQ_TEST_RUNS 100
 
 pthread_t wr_thread_tid[M];
 pthread_t rd_thread_tid[N];
@@ -139,41 +126,6 @@ void *reader_thread(void *arg) {
 #endif
 		process_data(message_buffer.data_pkt, message_buffer.buf_size);
 
-		/* --------------------------------------------------------- */
-		/* read from message queue */
-		smq              msgq;
-		struct smq_msg  *message;
-		int             msg_count = 0;
-
-//        msgq = (smq)args;
-		msgq = smq_create();
-        if (smq_dup(msgq))
-                pthread_exit(NULL);
-
-        printf("reader thread prepare to receive message\n");
-		message = smq_receive(msgq);
-		printf("receiving messages iteration %d\n", msg_count);
-		if (message == NULL) {
-			printf("message is NULL\n");
-			continue;
-		}
-		else if (message->data == NULL) {
-			printf("message data is NULL\n");
-			continue;
-		}
-		else if (*(int *)message->data != msg_count) {
-			printf("checking message count\n");
-			printf("?%d,%d\n", *(int *)message->data, msg_count);
-		}
-		else {
-			printf("incrementing message count\n");
-			msg_count++;
-		}
-
-		smq_msg_destroy(message, SMQ_DESTROY_ALL);
-		printf("message count = %d", msg_count);
-        /* --------------------------------------------------------- */
-
 		/* unlock reader/writer lock */
 #ifdef DEBUG_MODE
 		printf("Reader {tid=%d} is done, releasing rw lock\n", thread_id);
@@ -224,38 +176,6 @@ void *writer_thread(void *arg) {
 
 		/* update timestamp */
 		strncpy(message_buffer.last_update_timestamp, asctime(localtime (&timeofday)), TIMESTAMP_LEN);
-
-		/* --------------------------------------------------------- */
-		/* message queue */
-        smq              msgq;
-        struct smq_msg  *message;
-        int             data[SMQ_TEST_RUNS];
-
-        msgq = smq_create();
-        if (smq_dup(msgq)) {
-        	printf("failed to duplicate message queue\n");
-			pthread_exit(NULL);
-        }
-        int err_rc;
-
-        printf("writer thread prepare to send message\n");
-        for (int i = 0; i < SMQ_TEST_RUNS; i++) {
-			data[i] = rand();
-			message = smq_msg_create((void *)data, sizeof(*data));
-			if (message == NULL) {
-				printf("message is NULL\n");
-				smq_destroy(msgq);
-			} else {
-				printf("start sending\n");
-				err_rc = smq_send(msgq, message);
-				if (err_rc != 0) {
-					printf("error sending messages at %d, errno=%d\n", i, err_rc);
-				}
-			}
-        }
-        smq_destroy(msgq);
-        /* --------------------------------------------------------- */
-
 
 		/* unlock reader/writer lock */
 #ifdef DEBUG_MODE

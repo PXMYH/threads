@@ -24,27 +24,4 @@ int random_data_pkt_generator(char* data_pkt_buf, unsigned int * buffer_size_in_
  * */
 int data_pkt_generator (char* data, unsigned int buffer_size_in_bytes);
 
-/* smq_msg_destroy options */
-#define SMQ_CONTAINER_ONLY      0
-#define SMQ_DESTROY_ALL         1
-
-
-typedef struct _smq *            smq;
-
-struct smq_msg {
-	void                    *data;
-	size_t                   data_len;
-};
-
-smq              smq_create(void);
-int              smq_send(smq, struct smq_msg *);
-struct smq_msg  *smq_receive(smq);
-size_t           smq_len(smq);
-void             smq_settimeout(smq, struct timeval *);
-int              smq_dup(smq);
-int              smq_destroy(smq);
-
-struct smq_msg  *smq_msg_create(void *, size_t);
-int              smq_msg_destroy(struct smq_msg *, int);
-
 #endif /* INCLUDE_UTILS_H_ */
